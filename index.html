@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MarkIT</title>
+
+<!-- 核心底层库 -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css">
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js"></script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/contrib/auto-render.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<!-- 引入 IndexedDB 库实现超大文件持久化 -->
+<script src="https://cdn.jsdelivr.net/npm/idb-keyval@6/dist/umd.js"></script>
+
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+SC:wght@300;400;500&display=swap');
+
+  :root {
+    --bg: #0f0f0f; --surface: #1a1a1a; --surface2: #242424; --border: #2e2e2e;
+    --accent: #e8c97a; --accent2: #c4a85a; --text: #e8e4dc; --text-muted: #7a7570; --danger: #c97a7a;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Noto Sans SC', sans-serif; background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+  /* Header */
+  header { display: flex; align-items: center; gap: 12px; padding: 10px 18px; background: var(--surface); border-bottom: 1px solid var(--border); flex-shrink: 0; z-index: 100; flex-wrap: wrap; }
+  .logo { font-family: 'Noto Serif SC', serif; font-size: 16px; font-weight: 600; color: var(--accent); }
+  .file-name { font-size: 13px; color: var(--text-muted); max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .header-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+  
+  .btn { display: flex; align-items: center; justify-content: center; gap: 5px; padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface2); color: var(--text); font-size: 12px; cursor: pointer; transition: all 0.15s; }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-primary { background: var(--accent); color: #0f0f0f; border-color: var(--accent); font-weight: 600; }
+  .btn-primary:hover { background: var(--accent2); }
+  .btn-danger { color: var(--danger); border-color: rgba(201,122,122,0.3); }
+  .btn-danger:hover { background: rgba(201,122,122,0.1); border-color: var(--danger); color: var(--danger); }
+  .divider { width: 1px; height: 18px; background: var(--border); }
+  
+  .zoom-controls { display: flex; align-items: center; gap: 4px; }
+  .zoom-btn { width: 26px; height: 26px; border: 1px solid var(--border); background: var(--surface2); color: var(--text); border-radius: 5px; cursor: pointer; font-size: 14px; }
+  .zoom-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .zoom-label { font-size: 11px; color: var(--text-muted); min-width: 34px; text-align: center; }
+
+  .annotate-btn { padding: 6px 14px; border-radius: 20px; border: 1px solid var(--border); background: var(--surface2); color: var(--text-muted); font-size: 12px; cursor: pointer; transition: all 0.2s; }
+  .annotate-btn.on { background: rgba(232,201,122,0.12); color: var(--accent); border-color: rgba(232,201,122,0.4); }
+  .annotate-btn.on::before { content: ''; display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--accent); margin-right:6px; animation: blink 1.2s infinite; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  /* Main Area */
+  .main { display: flex; flex: 1; overflow: hidden; position: relative; }
+
+  /* Upload */
+  #upload-area { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px; }
+  .upload-box { width: 400px; border: 1.5px dashed var(--border); border-radius: 16px; padding: 56px 40px; text-align: center; cursor: pointer; background: var(--surface); transition: all 0.2s; }
+  .upload-box:hover { border-color: var(--accent); background: rgba(232,201,122,0.04); }
+  .upload-title { font-family: 'Noto Serif SC', serif; font-size: 17px; font-weight: 600; margin-bottom: 6px; color: var(--accent); }
+  .upload-sub { font-size: 13px; color: var(--text-muted); }
+  #file-input { display: none; }
+
+  /* Viewer */
+  #viewer-area { display: none; flex: 1; overflow: auto; position: relative; }
+  #pdf-scroll { width: 100%; min-height: 100%; display: flex; flex-direction: column; align-items: center; padding: 20px 20px 60px; gap: 18px; background: #080808; position: relative; }
+  
+  .pdf-page-wrapper { position: relative; flex-shrink: 0; box-shadow: 0 6px 32px rgba(0,0,0,0.65); border-radius: 2px; }
+  .pdf-page-wrapper canvas { display: block; }
+  .annotation-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+  #pdf-scroll.annotate-mode .annotation-layer { pointer-events: all; cursor: crosshair; }
+
+  /* 无背景笔记容器 */
+  .inline-bubble { position: absolute; padding: 6px; pointer-events: all; cursor: pointer; max-width: 400px; word-wrap: break-word; z-index: 10; transform-origin: center center; background: transparent; border: 1.5px solid transparent; }
+  .inline-bubble.selected-note { border: 1.5px dashed var(--text-muted); cursor: move; z-index: 20; background: rgba(255,255,255,0.02); }
+
+  .rotate-handle { position: absolute; top: -24px; left: 50%; transform: translateX(-50%); width: 12px; height: 12px; background: #7ac998; border-radius: 50%; cursor: grab; display: none; }
+  .rotate-handle:active { cursor: grabbing; }
+  .inline-bubble.selected-note .rotate-handle { display: block; }
+  .rotate-handle::after { content: ''; position: absolute; top: 12px; left: 5.5px; width: 1px; height: 12px; background: var(--text-muted); }
+  
+  .resize-handle { position: absolute; width: 8px; height: 8px; background: white; border: 1px solid var(--text-muted); border-radius: 50%; display: none; }
+  .inline-bubble.selected-note .resize-handle { display: block; }
+  .resize-handle.nw { top: -4px; left: -4px; cursor: nwse-resize; } .resize-handle.ne { top: -4px; right: -4px; cursor: nesw-resize; }
+  .resize-handle.sw { bottom: -4px; left: -4px; cursor: nesw-resize; } .resize-handle.se { bottom: -4px; right: -4px; cursor: nwse-resize; }
+
+  .note-content h1, .note-content h2, .note-content h3 { color: inherit; margin: 4px 0; font-weight: 600; }
+  .note-content p { margin-bottom: 6px; line-height: 1.5; color: inherit; } .note-content p:last-child { margin-bottom: 0; }
+  .note-content code { font-family: 'JetBrains Mono', monospace; background: rgba(120,120,120,0.2); padding: 2px 4px; border-radius: 4px; }
+  .note-content pre { background: rgba(0,0,0,0.5); border: 1px solid var(--border); border-radius: 6px; padding: 10px; margin: 8px 0; overflow-x: auto; }
+  .note-content ul, .note-content ol { padding-left: 20px; margin-bottom: 6px; color: inherit; }
+
+  /* 独立悬浮编辑器 */
+  #editor-card { display: none; position: fixed; width: 500px; max-width: 90vw; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,0.9); flex-direction: column; z-index: 2000; }
+  #editor-card.open { display: flex; }
+  .editor-header { padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; cursor: grab; background: var(--surface2); }
+  .editor-header:active { cursor: grabbing; }
+  .editor-title { font-family: 'Noto Serif SC', serif; font-size: 14px; font-weight: 600; color: var(--accent); flex: 1; pointer-events: none; }
+
+  .config-row { display: flex; align-items: center; gap: 16px; padding: 10px 16px; border-bottom: 1px solid var(--border); }
+  .color-picker-group { display: flex; align-items: center; gap: 8px; }
+  .color-swatch { width: 20px; height: 20px; border-radius: 50%; cursor: pointer; border: 2px solid transparent; transition: all 0.15s; }
+  .color-swatch.selected { border-color: white; transform: scale(1.15); box-shadow: 0 0 8px rgba(255,255,255,0.4); }
+  #custom-color-btn { background: conic-gradient(red, yellow, green, cyan, blue, magenta, red); }
+
+  .font-size-group { display: flex; align-items: center; gap: 6px; margin-left: auto; font-size: 12px; color: var(--text-muted); }
+  .font-size-input { width: 46px; background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 4px; border-radius: 4px; outline: none; text-align: center; }
+  
+  .editor-body { flex: 1; display: flex; flex-direction: column; }
+  #note-textarea { width: 100%; min-height: 200px; padding: 16px; background: var(--bg); border: none; color: var(--text); font-family: 'Noto Sans SC', sans-serif; font-size: 14px; line-height: 1.6; resize: vertical; outline: none; }
+  
+  .editor-footer { padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border); background: var(--surface2); }
+  .delete-btn-modal { color: var(--danger); background: none; border: none; cursor: pointer; font-size: 12px; } .delete-btn-modal:hover { text-decoration: underline; }
+
+  /* AI 侧边栏 */
+  #ai-sidebar { position: absolute; right: -360px; top: 0; width: 350px; height: 100%; background: var(--surface); border-left: 1px solid var(--border); transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1); z-index: 1500; display: flex; flex-direction: column; box-shadow: -10px 0 30px rgba(0,0,0,0.5); }
+  #ai-sidebar.open { right: 0; }
+  .ai-header { padding: 14px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; background: var(--surface2); }
+  .ai-title { font-weight: 600; color: var(--accent); display: flex; align-items: center; gap: 6px; }
+  .ai-close { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 16px; } .ai-close:hover { color: white; }
+  .ai-chat-box { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; font-size: 13px; line-height: 1.5; }
+  .ai-msg { padding: 10px 14px; border-radius: 8px; max-width: 90%; word-wrap: break-word; }
+  .ai-msg.user { background: rgba(232,201,122,0.15); color: var(--text); align-self: flex-end; border-bottom-right-radius: 2px; }
+  .ai-msg.bot { background: var(--surface2); border: 1px solid var(--border); align-self: flex-start; border-bottom-left-radius: 2px; }
+  .ai-msg.bot p { margin-bottom: 6px; } .ai-msg.bot p:last-child { margin-bottom: 0; }
+  .ai-msg.bot pre { background: var(--bg); padding: 8px; border-radius: 4px; overflow-x: auto; margin: 6px 0; border: 1px solid var(--border); }
+  .ai-input-area { padding: 12px; border-top: 1px solid var(--border); background: var(--surface); display: flex; gap: 8px; flex-direction: column; }
+  #ai-input { width: 100%; min-height: 60px; padding: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); resize: none; font-family: inherit; font-size: 13px; outline: none; }
+  #ai-input:focus { border-color: var(--accent); }
+  .ai-controls { display: flex; justify-content: space-between; align-items: center; }
+  #ai-key-btn { font-size: 11px; color: var(--text-muted); cursor: pointer; text-decoration: underline; background: none; border: none; }
+
+  #loading-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 9999; align-items: center; justify-content: center; flex-direction: column; gap: 15px; color: var(--accent); }
+  .spinner { width: 40px; height: 40px; border: 4px solid rgba(232,201,122,0.3); border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  
+  ::-webkit-scrollbar { width: 8px; height: 8px; } ::-webkit-scrollbar-track { background: transparent; } ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">MarkIT PDF编辑器</div>
+  <div class="divider" id="header-div-1" style="display:none;"></div>
+  <div class="file-name" id="display-file-name"></div>
+
+  <div class="header-actions" id="header-actions" style="display: none;">
+    <div class="zoom-controls">
+      <button class="zoom-btn" id="zoom-out">−</button>
+      <span class="zoom-label" id="zoom-val">100%</span>
+      <button class="zoom-btn" id="zoom-in">+</button>
+    </div>
+    <div class="divider"></div>
+    <button class="btn" id="toggle-ai-btn">✨ AI 助手</button>
+    <div class="divider"></div>
+    <button class="annotate-btn on" id="annotate-toggle">添加模式 [开启]</button>
+    <div class="divider"></div>
+    <button class="btn" id="save-pdf-btn">保存</button>
+    <button class="btn" id="export-pdf-btn">另存为</button>
+    <div class="divider"></div>
+    <button class="btn btn-danger" id="close-file-btn">退出并保存</button>
+  </div>
+</header>
+
+<div class="main">
+  <!-- 上传区域 -->
+  <div id="upload-area">
+    <div class="upload-box" id="upload-box-btn">
+      <div class="upload-title">点击打开 PDF 文件</div>
+      <div class="upload-sub">支持本地渲染</div>
+    </div>
+    <input type="file" id="file-input" accept="application/pdf"> 
+  </div>
+
+  <!-- 阅读器区域 -->
+  <div id="viewer-area">
+    <div id="pdf-scroll" class="annotate-mode"></div>
+  </div>
+
+  <!-- AI 侧边栏 -->
+  <div id="ai-sidebar">
+    <div class="ai-header">
+      <div class="ai-title">✨ QWen AI 助手</div>
+      <button class="ai-close" id="close-ai-btn">✕</button>
+    </div>
+    <div class="ai-chat-box" id="ai-chat-box">
+      <div class="ai-msg bot">你好！我是集成在笔记中的AI助手。在下方输入问题即可与我对话。首次使用请配置API Key。</div>
+    </div>
+    <div class="ai-input-area">
+      <textarea id="ai-input" placeholder="输入你想问的问题... (Shift+Enter 换行，Enter 发送)"></textarea>
+      <div class="ai-controls">
+        <button id="ai-key-btn">配置 API Key</button>
+        <button class="btn btn-primary" id="ai-send-btn" style="padding: 4px 12px;">发送</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 悬浮编辑器面板 -->
+<div id="editor-card" style="left: 50vw; top: 20vh; transform: translateX(-50%);">
+  <div class="editor-header" id="editor-header">
+    <div class="editor-title">✏️ 编辑笔记 (拖拽此处移动)</div>
+  </div>
+  <div class="config-row">
+    <div class="color-picker-group" id="color-picker">
+      <div class="color-swatch selected" data-color="#C62828" style="background: #C62828;"></div>
+      <div class="color-swatch" data-color="#000000" style="background: #000000;"></div>
+      <div class="color-swatch" data-color="#0E4139" style="background: #0E4139;"></div>
+      <div class="color-swatch" data-color="#671D1D" style="background: #671D1D;"></div>
+      <div class="color-swatch" id="custom-color-btn" title="自定义颜色"></div>
+      <input type="color" id="custom-color-picker" style="display: none;" value="#e8c97a">
+    </div>
+    <div class="font-size-group">
+      字号 <input type="number" id="font-size-input" class="font-size-input" value="16" min="8" max="150">
+    </div>
+  </div>
+  <div class="editor-body">
+    <textarea id="note-textarea" placeholder="输入 Markdown 文本或 LaTeX 公式..."></textarea>
+  </div>
+  <div class="editor-footer">
+    <button class="delete-btn-modal" id="delete-note-btn">删除笔记</button>
+    <div style="margin-left:auto; display:flex; gap:8px;">
+      <button class="btn btn-primary" id="finish-note-btn">完成</button>
+    </div>
+  </div>
+</div>
+
+<div id="loading-overlay">
+  <div class="spinner"></div>
+  <div id="loading-text">正在处理...</div>
+</div>
+<script>
+// ================= 全局状态与 IndexedDB =================
+  const IDB_STORE = idbKeyval;
+  
+  let currentProjectId = null;     // 当前项目的唯一ID
+  let pdfDoc = null;
+  let originalPdfBytes = null;     // 纯净版的原始PDF字节
+  let fileHandle = null; 
+  let currentScale = 1.2;
+  let isAnnotateMode = true; 
+  let annotations = []; 
+  let activeNoteId = null; 
+
+  const uploadArea = document.getElementById('upload-area');
+  const viewerArea = document.getElementById('viewer-area');
+  const pdfScroll = document.getElementById('pdf-scroll');
+  const fileInput = document.getElementById('file-input');
+  const annotateToggle = document.getElementById('annotate-toggle');
+  
+  const editorCard = document.getElementById('editor-card');
+  const editorHeader = document.getElementById('editor-header');
+  const noteTextarea = document.getElementById('note-textarea');
+  const fontSizeInput = document.getElementById('font-size-input');
+  const customColorBtn = document.getElementById('custom-color-btn');
+  const customColorPicker = document.getElementById('custom-color-picker');
+  const overlay = document.getElementById('loading-overlay');
+  const overlayText = document.getElementById('loading-text');
+
+  // ================= 工具函数 =================
+  function showLoading(msg) { overlayText.textContent = msg; overlay.style.display = 'flex'; }
+  function hideLoading() { overlay.style.display = 'none'; }
+
+  async function saveWorkspace() {
+    if (currentProjectId && originalPdfBytes) {
+      await IDB_STORE.set(currentProjectId, {
+        originalBytes: originalPdfBytes,
+        annotations: annotations
+      });
+    }
+  }
+
+  // ================= 悬浮编辑器拖拽逻辑 =================
+  let isDraggingEditor = false, edStartX, edStartY, edStartLeft, edStartTop;
+  editorHeader.addEventListener('mousedown', (e) => {
+    isDraggingEditor = true; edStartX = e.clientX; edStartY = e.clientY;
+    const rect = editorCard.getBoundingClientRect();
+    editorCard.style.transform = 'none';
+    editorCard.style.left = rect.left + 'px'; editorCard.style.top = rect.top + 'px';
+    edStartLeft = rect.left; edStartTop = rect.top;
+  });
+  document.addEventListener('mousemove', (e) => {
+    if (!isDraggingEditor) return;
+    editorCard.style.left = `${edStartLeft + (e.clientX - edStartX)}px`;
+    editorCard.style.top = `${edStartTop + (e.clientY - edStartY)}px`;
+  });
+  document.addEventListener('mouseup', () => { isDraggingEditor = false; });
+
+  // ================= 文件加载核心逻辑 =================
+// ================= 文件加载核心逻辑 =================
+  async function handleFileSelection() {
+    if (window.showOpenFilePicker) {
+      try {
+        const [handle] = await window.showOpenFilePicker({ types: [{ description: 'PDF 文件', accept: { 'application/pdf': ['.pdf'] } }] });
+        fileHandle = handle;
+        const file = await handle.getFile();
+        loadPDF(file);
+      } catch (err) {}
+    } else {
+      fileInput.click();
+    }
+  }
+  document.getElementById('upload-box-btn').addEventListener('click', handleFileSelection);
+  fileInput.addEventListener('change', async (e) => { const file = e.target.files[0]; fileHandle = null; if (file) loadPDF(file); e.target.value = ''; });
+  uploadArea.addEventListener('dragover', (e) => e.preventDefault());
+  uploadArea.addEventListener('drop', (e) => { e.preventDefault(); const file = e.dataTransfer.files[0]; fileHandle = null; if (file) loadPDF(file); });
+
+  async function loadPDF(file) {
+    showLoading('正在解析并提取文件底层特征...');
+    document.getElementById('display-file-name').textContent = file.name;
+    uploadArea.style.display = 'none';
+    viewerArea.style.display = 'block';
+    document.getElementById('header-actions').style.display = 'flex';
+    document.getElementById('header-div-1').style.display = 'block';
+
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const fileBytes = new Uint8Array(arrayBuffer);
+      
+      let pId = null;
+      let workspaceLoaded = false;
+
+      // 1. 兼容读取上一版本的脏指纹
+      const tailStr = new TextDecoder().decode(fileBytes.slice(Math.max(0, fileBytes.length - 200)));
+      const match = tailStr.match(/<!--PDF-ANNOTATOR-ID:([a-zA-Z0-9_]+)-->/);
+      if (match) {
+        pId = match[1];
+      } else {
+        // 2. 使用安全的官方 PDF 元数据读取指纹
+        try {
+          // 【修复1】: 传入克隆切片 fileBytes.slice() 防止被消耗
+          const docTemp = await PDFLib.PDFDocument.load(fileBytes.slice(), { ignoreEncryption: true });
+          const subject = docTemp.getSubject();
+          if (subject && subject.includes('PDF-ANNOTATOR-ID:')) {
+            pId = subject.replace('PDF-ANNOTATOR-ID:', '').trim();
+          }
+        } catch (err) { console.warn("无法解析文件元数据", err); }
+      }
+
+      if (pId) {
+        const storedData = await IDB_STORE.get(pId);
+        // 【防错机制】确保 IndexedDB 里确实取出了有效的数据
+        if (storedData && storedData.originalBytes) {
+          currentProjectId = pId;
+          // 【修复2】: 强制转换为 Uint8Array，防止 IndexedDB 读出不规范对象格式
+          originalPdfBytes = new Uint8Array(storedData.originalBytes);
+          annotations = storedData.annotations || [];
+          workspaceLoaded = true;
+        }
+      }
+
+      if (!workspaceLoaded) {
+        // 全新文件 (或是在另一台没缓存的电脑上打开的文件)
+        currentProjectId = pId || ('proj_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6));
+        originalPdfBytes = new Uint8Array(fileBytes); 
+        annotations = [];
+        await saveWorkspace();
+      }
+
+      // 【核心修复3】: 传入 .slice() 创建副本，防止 pdf.js Worker 把底层内存抽空 (Transfer)
+      pdfDoc = await pdfjsLib.getDocument({ data: originalPdfBytes.slice() }).promise;
+      currentScale = 1.2;
+      activeNoteId = null;
+      
+      await renderAllPages();
+    } catch (error) {
+      alert("加载 PDF 时发生错误: " + error.message);
+      console.error(error);
+    } finally {
+      hideLoading();
+    }
+  }
+
+  // ========== 中间的渲染代码 (renderAllPages 等) 保持你的原样不变 ==========
+
+  // ================= 渲染页面与实时编辑 =================
+  async function renderAllPages() {
+    pdfScroll.innerHTML = ''; 
+    for (let num = 1; num <= pdfDoc.numPages; num++) {
+      const page = await pdfDoc.getPage(num);
+      const viewport = page.getViewport({ scale: currentScale });
+
+      const wrapper = document.createElement('div'); wrapper.className = 'pdf-page-wrapper';
+      wrapper.style.width = `${viewport.width}px`; wrapper.style.height = `${viewport.height}px`;
+
+      const canvas = document.createElement('canvas'); canvas.width = viewport.width; canvas.height = viewport.height;
+      const ctx = canvas.getContext('2d'); page.render({ canvasContext: ctx, viewport: viewport });
+
+      const annLayer = document.createElement('div'); annLayer.className = 'annotation-layer'; annLayer.id = `page-layer-${num}`;
+
+      annLayer.addEventListener('mousedown', (e) => {
+        if (e.target.closest('.inline-bubble')) return; 
+        if (isAnnotateMode) {
+          const rect = annLayer.getBoundingClientRect();
+          const newId = Date.now().toString();
+          annotations.push({
+            id: newId, pageNum: num, 
+            x: ((e.clientX - rect.left) / rect.width) * 100, 
+            y: ((e.clientY - rect.top) / rect.height) * 100,
+            text: '', color: selectedColor, fontSize: parseInt(fontSizeInput.value) || 16, rotation: 0
+          });
+          deselectAllNotes(); activeNoteId = newId; renderBubbles(); openEditor(newId);
+        } else { deselectAllNotes(); }
+      });
+
+      wrapper.appendChild(canvas); wrapper.appendChild(annLayer); pdfScroll.appendChild(wrapper);
+    }
+    renderBubbles(); updateZoomLabel();
+  }
+
+  document.getElementById('zoom-in').addEventListener('click', () => { if (currentScale < 3.0) { currentScale += 0.2; renderAllPages(); }});
+  document.getElementById('zoom-out').addEventListener('click', () => { if (currentScale > 0.6) { currentScale -= 0.2; renderAllPages(); }});
+  function updateZoomLabel() { document.getElementById('zoom-val').textContent = `${Math.round(currentScale * 100)}%`; }
+
+  annotateToggle.addEventListener('click', () => {
+    isAnnotateMode = !isAnnotateMode; annotateToggle.classList.toggle('on', isAnnotateMode);
+    pdfScroll.classList.toggle('annotate-mode', isAnnotateMode);
+    annotateToggle.textContent = isAnnotateMode ? '添加模式 [开启]' : '添加模式 [关闭]';
+  });
+
+  let selectedColor = '#C62828'; 
+  function updateColorSelection(colorStr, isCustom = false) {
+    selectedColor = colorStr;
+    document.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('selected'));
+    if (isCustom) customColorBtn.classList.add('selected');
+    else { let matched = document.querySelector(`.color-swatch[data-color="${colorStr}"]`); if (matched) matched.classList.add('selected'); }
+    syncEditorToNote(); 
+  }
+  document.querySelectorAll('.color-swatch[data-color]').forEach(s => { s.addEventListener('click', (e) => updateColorSelection(e.target.dataset.color)); });
+  customColorBtn.addEventListener('click', () => { if (customColorBtn.classList.contains('selected')) customColorPicker.click(); else updateColorSelection(customColorPicker.value, true); });
+  customColorPicker.addEventListener('input', (e) => { customColorBtn.style.background = e.target.value; updateColorSelection(e.target.value, true); });
+
+  function syncEditorToNote() {
+    if (!activeNoteId) return;
+    const ann = annotations.find(a => a.id === activeNoteId);
+    if (!ann) return;
+    ann.text = noteTextarea.value; ann.color = selectedColor; ann.fontSize = parseInt(fontSizeInput.value) || 16;
+    const bubble = document.getElementById(`bubble-${activeNoteId}`);
+    if (bubble) {
+      bubble.style.color = ann.color; bubble.style.fontSize = `${ann.fontSize * currentScale}px`;
+      const contentDiv = bubble.querySelector('.note-content');
+      if (contentDiv) {
+        contentDiv.innerHTML = marked.parse(ann.text || ' '); 
+        if (window.renderMathInElement) renderMathInElement(contentDiv, { delimiters: [{left: '$$', right: '$$', display: true}, {left: '$', right: '$', display: false}], throwOnError: false });
+      }
+    }
+    saveWorkspace();
+  }
+  noteTextarea.addEventListener('input', syncEditorToNote); fontSizeInput.addEventListener('input', syncEditorToNote);
+
+  function openEditor(noteId) {
+    editorCard.classList.add('open'); activeNoteId = noteId;
+    const ann = annotations.find(a => a.id === noteId);
+    if (!ann) return;
+    noteTextarea.value = ann.text; fontSizeInput.value = ann.fontSize || 16;
+    const isPreset = !!document.querySelector(`.color-swatch[data-color="${ann.color}"]`);
+    if (!isPreset && ann.color) { customColorPicker.value = ann.color; customColorBtn.style.background = ann.color; updateColorSelection(ann.color, true); } 
+    else { updateColorSelection(ann.color || '#C62828'); }
+    noteTextarea.focus();
+  }
+
+  function closeEditor() {
+    if (activeNoteId) {
+      const ann = annotations.find(a => a.id === activeNoteId);
+      if (ann && ann.text.trim() === '') { annotations = annotations.filter(a => a.id !== activeNoteId); renderBubbles(); saveWorkspace(); }
+    }
+    editorCard.classList.remove('open'); 
+  }
+  document.getElementById('finish-note-btn').addEventListener('click', closeEditor);
+  document.getElementById('delete-note-btn').addEventListener('click', () => { annotations = annotations.filter(a => a.id !== activeNoteId); saveWorkspace(); renderBubbles(); editorCard.classList.remove('open'); });
+
+  function deselectAllNotes() { activeNoteId = null; document.querySelectorAll('.inline-bubble').forEach(b => b.classList.remove('selected-note')); }
+
+  function renderBubbles() {
+    document.querySelectorAll('.annotation-layer').forEach(layer => layer.innerHTML = '');
+    annotations.forEach(ann => {
+      const layer = document.getElementById(`page-layer-${ann.pageNum}`); if (!layer) return;
+      const bubble = document.createElement('div'); bubble.className = 'inline-bubble';
+      if (activeNoteId === ann.id) bubble.classList.add('selected-note');
+      bubble.id = `bubble-${ann.id}`; bubble.style.left = `${ann.x}%`; bubble.style.top = `${ann.y}%`;
+      bubble.style.color = ann.color; bubble.style.fontSize = `${ann.fontSize * currentScale}px`;
+      bubble.style.transform = `translate(-50%, -50%) rotate(${ann.rotation || 0}deg)`;
+
+      const handle = document.createElement('div'); handle.className = 'rotate-handle'; bubble.appendChild(handle);
+      const content = document.createElement('div'); content.className = 'note-content';
+      content.innerHTML = marked.parse(ann.text || ' ');
+      if (window.renderMathInElement) renderMathInElement(content, { delimiters: [{left: '$$', right: '$$', display: true}, {left: '$', right: '$', display: false}], throwOnError: false });
+      bubble.appendChild(content);
+
+      ['nw', 'ne', 'sw', 'se'].forEach(pos => {
+        const resizeHandle = document.createElement('div'); resizeHandle.className = `resize-handle ${pos}`; bubble.appendChild(resizeHandle);
+        resizeHandle.addEventListener('mousedown', (e) => {
+          e.stopPropagation(); deselectAllNotes(); activeNoteId = ann.id; bubble.classList.add('selected-note');
+          const rect = bubble.getBoundingClientRect(); const centerX = rect.left + rect.width / 2; const centerY = rect.top + rect.height / 2;
+          const startDist = Math.hypot(e.clientX - centerX, e.clientY - centerY); const startFontSize = ann.fontSize || 16;
+          const onMouseMove = (ev) => {
+            const currentDist = Math.hypot(ev.clientX - centerX, ev.clientY - centerY);
+            let newSize = Math.max(8, Math.min(startFontSize * (currentDist / startDist), 150));
+            ann.fontSize = newSize; bubble.style.fontSize = `${newSize * currentScale}px`;
+            if (activeNoteId === ann.id && editorCard.classList.contains('open')) fontSizeInput.value = Math.round(newSize);
+          };
+          const onMouseUp = () => { document.removeEventListener('mousemove', onMouseMove); document.removeEventListener('mouseup', onMouseUp); saveWorkspace(); };
+          document.addEventListener('mousemove', onMouseMove); document.addEventListener('mouseup', onMouseUp);
+        });
+      });
+      layer.appendChild(bubble);
+
+      bubble.addEventListener('mousedown', (e) => {
+        if (e.target.closest('.rotate-handle') || e.target.closest('.resize-handle')) return; e.stopPropagation();
+        deselectAllNotes(); activeNoteId = ann.id; bubble.classList.add('selected-note');
+        const layerRect = layer.getBoundingClientRect(); let startX = e.clientX; let startY = e.clientY; let startPercentX = ann.x; let startPercentY = ann.y;
+        const onMouseMove = (ev) => { ann.x = startPercentX + ((ev.clientX - startX) / layerRect.width) * 100; ann.y = startPercentY + ((ev.clientY - startY) / layerRect.height) * 100; bubble.style.left = `${ann.x}%`; bubble.style.top = `${ann.y}%`; };
+        const onMouseUp = () => { document.removeEventListener('mousemove', onMouseMove); document.removeEventListener('mouseup', onMouseUp); saveWorkspace(); };
+        document.addEventListener('mousemove', onMouseMove); document.addEventListener('mouseup', onMouseUp);
+      });
+
+      handle.addEventListener('mousedown', (e) => {
+        e.stopPropagation(); const rect = bubble.getBoundingClientRect(); const centerX = rect.left + rect.width / 2; const centerY = rect.top + rect.height / 2;
+        const onMouseMove = (ev) => { const angle = Math.atan2(ev.clientY - centerY, ev.clientX - centerX) * (180 / Math.PI); ann.rotation = angle + 90; bubble.style.transform = `translate(-50%, -50%) rotate(${ann.rotation}deg)`; };
+        const onMouseUp = () => { document.removeEventListener('mousemove', onMouseMove); document.removeEventListener('mouseup', onMouseUp); saveWorkspace(); };
+        document.addEventListener('mousemove', onMouseMove); document.addEventListener('mouseup', onMouseUp);
+      });
+      bubble.addEventListener('dblclick', (e) => { e.stopPropagation(); openEditor(ann.id); });
+    });
+  }
+
+
+ // ================= 安全导出、保存、关闭核心机制 =================
+  async function processAndSavePDF(mode, silent = false) {
+    if (!originalPdfBytes) return;
+    
+    deselectAllNotes();
+    if (!silent) showLoading('正在渲染高清图片并合成 PDF...');
+
+    try {
+      const { PDFDocument, degrees } = PDFLib;
+      // 【核心修复4】: 同样使用 .slice() 克隆一份丢给处理程序，确保连续保存不会导致崩溃
+      const doc = await PDFDocument.load(originalPdfBytes.slice());
+
+      for (let ann of annotations) {
+        // ... 中间的 html2canvas 循环逻辑保持不变 ...
+        const domEl = document.getElementById(`bubble-${ann.id}`);
+        if (!domEl) continue;
+
+        // 彻底移除 transform 防截图被异常裁剪
+        const originalTransform = domEl.style.transform;
+        domEl.style.transform = 'none'; 
+        
+        const canvas = await html2canvas(domEl, { scale: 3, backgroundColor: null, useCORS: true, logging: false });
+        const imgData = canvas.toDataURL('image/png');
+        
+        domEl.style.transform = originalTransform;
+        
+        if (imgData === 'data:,') continue; // 跳过空元素
+
+        const pngImage = await doc.embedPng(imgData);
+
+        const pdfJsPage = await pdfDoc.getPage(ann.pageNum);
+        const viewport = pdfJsPage.getViewport({ scale: currentScale });
+        const page = doc.getPage(ann.pageNum - 1);
+        const { width: pdfWidth, height: pdfHeight } = page.getSize();
+        
+        const scaleX = pdfWidth / viewport.width; const scaleY = pdfHeight / viewport.height;
+        const imgWidth = domEl.offsetWidth * scaleX; const imgHeight = domEl.offsetHeight * scaleY;
+
+        const centerPdfX = (ann.x / 100) * pdfWidth; const centerPdfY = pdfHeight - ((ann.y / 100) * pdfHeight);
+        const angleRad = -(ann.rotation || 0) * (Math.PI / 180);
+        const cos = Math.cos(angleRad); const sin = Math.sin(angleRad);
+        const drawX = centerPdfX - (imgWidth / 2) * cos + (imgHeight / 2) * sin;
+        const drawY = centerPdfY - (imgWidth / 2) * sin - (imgHeight / 2) * cos;
+
+        page.drawImage(pngImage, { x: drawX, y: drawY, width: imgWidth, height: imgHeight, rotate: degrees(-(ann.rotation || 0)) });
+      }
+
+      // 【核心修复】：使用合规的 PDF 元数据存储指纹
+      doc.setSubject(`PDF-ANNOTATOR-ID:${currentProjectId}`);
+      
+      const finalBytes = await doc.save();
+      
+      if (mode === 'save' && fileHandle) {
+        try {
+          const writable = await fileHandle.createWritable(); 
+          await writable.write(finalBytes); 
+          await writable.close();
+          if(!silent) alert('保存成功！已直接覆盖源文件。');
+          return;
+        } catch(err) {
+          console.error(err);
+          if(!silent) alert('覆盖保存失败（没有权限或文件被占用）。将尝试另存为...');
+        }
+      }
+
+      const defaultFileName = "Notes_" + document.getElementById('display-file-name').textContent;
+      if (window.showSaveFilePicker && !silent) {
+        try {
+          const saveHandle = await window.showSaveFilePicker({ suggestedName: defaultFileName, types: [{ description: 'PDF 文件', accept: { 'application/pdf': ['.pdf'] } }] });
+          const writable = await saveHandle.createWritable(); await writable.write(finalBytes); await writable.close();
+        } catch (err) { if (err.name !== 'AbortError') throw err; }
+      } else {
+        const blob = new Blob([finalBytes], { type: "application/pdf" });
+        const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = defaultFileName; link.click();
+      }
+    } catch (e) { 
+      console.error(e); 
+      if(!silent) alert(`处理 PDF 失败: ${e.message}\n(详细报错已输出到 F12 控制台)`); 
+    } 
+    finally { if (!silent) hideLoading(); }
+  }
+
+  document.getElementById('save-pdf-btn').addEventListener('click', () => processAndSavePDF('save'));
+  document.getElementById('export-pdf-btn').addEventListener('click', () => processAndSavePDF('saveAs'));
+
+  // 退出并返回核心逻辑
+  document.getElementById('close-file-btn').addEventListener('click', async () => {
+    showLoading('正在保存工作区并关闭...');
+    await saveWorkspace();
+    if (fileHandle) { await processAndSavePDF('save', true); }
+    
+    closeEditor();
+    pdfScroll.innerHTML = '';
+    currentProjectId = null; originalPdfBytes = null; pdfDoc = null; fileHandle = null; annotations = [];
+    document.getElementById('viewer-area').style.display = 'none';
+    document.getElementById('header-actions').style.display = 'none';
+    document.getElementById('header-div-1').style.display = 'none';
+    document.getElementById('upload-area').style.display = 'flex';
+    document.getElementById('display-file-name').textContent = '';
+    hideLoading();
+  });
+
+  // ================= AI 助手集成 (QWen DashScope API) =================
+  const aiSidebar = document.getElementById('ai-sidebar');
+  const aiChatBox = document.getElementById('ai-chat-box');
+  const aiInput = document.getElementById('ai-input');
+  
+  document.getElementById('toggle-ai-btn').addEventListener('click', () => aiSidebar.classList.toggle('open'));
+  document.getElementById('close-ai-btn').addEventListener('click', () => aiSidebar.classList.remove('open'));
+
+  function getApiKey() { return localStorage.getItem('qwen_api_key'); }
+  document.getElementById('ai-key-btn').addEventListener('click', () => {
+    const current = getApiKey();
+    const input = prompt('请输入您的阿里云 DashScope (QWen) API Key:\n(该 Key 仅保存在您的浏览器本地，不会上传)', current || '');
+    if (input !== null) { localStorage.setItem('qwen_api_key', input.trim()); alert('API Key 配置成功！'); }
+  });
+
+  function appendAiMessage(role, text) {
+    const div = document.createElement('div');
+    div.className = `ai-msg ${role}`;
+    div.innerHTML = marked.parse(text);
+    aiChatBox.appendChild(div);
+    aiChatBox.scrollTop = aiChatBox.scrollHeight;
+    return div;
+  }
+
+  let chatHistory = [{ role: 'system', content: '你是一个帮助用户阅读和分析 PDF 文献资料的 AI 助手。请直接、简洁、专业地回答问题，支持使用 Markdown 格式。' }];
+
+  async function sendAiMessage() {
+    const text = aiInput.value.trim();
+    const apiKey = getApiKey();
+    if (!text) return;
+    if (!apiKey) { alert('请先配置 API Key！'); return; }
+
+    appendAiMessage('user', text);
+    chatHistory.push({ role: 'user', content: text });
+    aiInput.value = '';
+    const botMsgDiv = appendAiMessage('bot', '正在思考...');
+
+    try {
+      const res = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: 'qwen-plus', messages: chatHistory })
+      });
+      
+      if (!res.ok) throw new Error(res.statusText);
+      const data = await res.json();
+      const reply = data.choices[0].message.content;
+      botMsgDiv.innerHTML = marked.parse(reply);
+      chatHistory.push({ role: 'assistant', content: reply });
+      aiChatBox.scrollTop = aiChatBox.scrollHeight;
+    } catch (e) {
+      botMsgDiv.innerHTML = `<span style="color:var(--danger)">请求出错，请检查网络或 API Key 是否有效。</span>`;
+      chatHistory.pop(); 
+    }
+  }
+
+  document.getElementById('ai-send-btn').addEventListener('click', sendAiMessage);
+  aiInput.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendAiMessage(); } });
+
+</script>
+</body>
+</html>
