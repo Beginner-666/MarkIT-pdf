@@ -33,7 +33,7 @@
 
 ```bash
 # 或者克隆整个仓库
-git clone https://github.com/beginner-666/markit-pdf.git
+git clone https://github.com/Beginner-666/markit-pdf.git
 cd markit-pdf
 # 用浏览器打开 index.html
 ```
