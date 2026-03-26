@@ -9,6 +9,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css">
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js"></script>
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/contrib/auto-render.min.js"></script>
@@ -441,7 +442,7 @@
       bubble.style.color = ann.color; bubble.style.fontSize = `${ann.fontSize * currentScale}px`;
       const contentDiv = bubble.querySelector('.note-content');
       if (contentDiv) {
-        contentDiv.innerHTML = marked.parse(ann.text || ' '); 
+        contentDiv.innerHTML = DOMPurify.sanitize(marked.parse(ann.text || ' '));
         if (window.renderMathInElement) renderMathInElement(contentDiv, { delimiters: [{left: '$$', right: '$$', display: true}, {left: '$', right: '$', display: false}], throwOnError: false });
       }
     }
@@ -484,7 +485,7 @@
 
       const handle = document.createElement('div'); handle.className = 'rotate-handle'; bubble.appendChild(handle);
       const content = document.createElement('div'); content.className = 'note-content';
-      content.innerHTML = marked.parse(ann.text || ' ');
+      content.innerHTML = DOMPurify.sanitize(marked.parse(ann.text || ' '));
       if (window.renderMathInElement) renderMathInElement(content, { delimiters: [{left: '$$', right: '$$', display: true}, {left: '$', right: '$', display: false}], throwOnError: false });
       bubble.appendChild(content);
 
@@ -636,17 +637,17 @@
   document.getElementById('toggle-ai-btn').addEventListener('click', () => aiSidebar.classList.toggle('open'));
   document.getElementById('close-ai-btn').addEventListener('click', () => aiSidebar.classList.remove('open'));
 
-  function getApiKey() { return localStorage.getItem('qwen_api_key'); }
+  function getApiKey() { return sessionStorage.getItem('qwen_api_key'); }
   document.getElementById('ai-key-btn').addEventListener('click', () => {
     const current = getApiKey();
-    const input = prompt('请输入您的阿里云 DashScope (QWen) API Key:\n(该 Key 仅保存在您的浏览器本地，不会上传)', current || '');
-    if (input !== null) { localStorage.setItem('qwen_api_key', input.trim()); alert('API Key 配置成功！'); }
+    const input = prompt('请输入您的阿里云 DashScope (QWen) API Key:\n⚠️ Key 仅保存在当前会话内存中，关闭标签页后自动清除，不会持久化到磁盘。', current || '');
+    if (input !== null) { sessionStorage.setItem('qwen_api_key', input.trim()); alert('API Key 配置成功！\n（关闭标签页后将自动清除，下次使用需重新输入）'); }
   });
 
   function appendAiMessage(role, text) {
     const div = document.createElement('div');
     div.className = `ai-msg ${role}`;
-    div.innerHTML = marked.parse(text);
+    div.innerHTML = DOMPurify.sanitize(marked.parse(text));
     aiChatBox.appendChild(div);
     aiChatBox.scrollTop = aiChatBox.scrollHeight;
     return div;
@@ -675,7 +676,7 @@
       if (!res.ok) throw new Error(res.statusText);
       const data = await res.json();
       const reply = data.choices[0].message.content;
-      botMsgDiv.innerHTML = marked.parse(reply);
+      botMsgDiv.innerHTML = DOMPurify.sanitize(marked.parse(reply));
       chatHistory.push({ role: 'assistant', content: reply });
       aiChatBox.scrollTop = aiChatBox.scrollHeight;
     } catch (e) {
