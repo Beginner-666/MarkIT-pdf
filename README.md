@@ -57,6 +57,7 @@ cd markit-pdf
 3. 粘贴您的 API Key，点击确定
 
 > 🔒 **隐私安全**：您的 API Key 仅保存在**本地浏览器**（localStorage）中，不会上传到任何服务器。
+> 处于安全考虑，每次打开网页时都需重新配置API Key
 
 ---
 
